@@ -104,11 +104,11 @@ def run_camera():
         ret, frame = video_capture.read()
         if not ret:
             continue
-        small_frame = cv2.resize(frame, (0,0), fx=0.25, fy=0.25)
+        small_frame = cv2.resize(frame, (0,0), fx=0.5, fy=0.5)  # changed from 0.25 to 0.5
         face_locations = face_recognition.face_locations(small_frame)
         face_encodings = face_recognition.face_encodings(small_frame, face_locations)
         for face_encoding, face_location in zip(face_encodings, face_locations):
-            matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
+            matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.5)  # reduced tolerance
             face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
             if len(face_distances) == 0:
                 continue
@@ -116,7 +116,7 @@ def run_camera():
             if matches[best_match_index]:
                 roll_no = known_face_names[best_match_index]
                 mark_attendance(roll_no)
-                top, right, bottom, left = [v*4 for v in face_location]
+                top, right, bottom, left = [v*2 for v in face_location]  # adjusted for fx=0.5
                 cv2.rectangle(frame, (left, top), (right, bottom), (0,255,0), 2)
                 cv2.putText(frame, roll_no, (left, top-10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,0), 2)
@@ -127,6 +127,7 @@ def run_camera():
     video_capture.release()
     cv2.destroyAllWindows()
     running = False
+
 
 # ------------------ Attendance Scheduler ------------------
 def attendance_scheduler():
