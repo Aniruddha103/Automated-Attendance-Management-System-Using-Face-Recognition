@@ -129,6 +129,7 @@ def run_camera():
     cv2.destroyAllWindows()
     running = False
 
+
 # ------------------ Attendance Scheduler ------------------
 def attendance_scheduler():
     global running
