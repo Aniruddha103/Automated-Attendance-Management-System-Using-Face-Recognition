@@ -21,33 +21,33 @@ app.add_middleware(
 )
 
 # ------------------ Attendance System ------------------
-images_dir = "C:/Users/Aniruddha/OneDrive/Pictures/Camera Roll/"
-
+images_dir = "C:/Users/Aniruddha/OneDrive/Students/"  # folder with student images
 images_path = {}
 student_ids = {}
+marked_students = set()
+lock = threading.Lock()  # Thread-safe access
+running = False
 
+# Load student images
 for filename in os.listdir(images_dir):
     if filename.lower().endswith((".jpg", ".jpeg", ".png")):
         roll_no = os.path.splitext(filename)[0]
         images_path[roll_no] = os.path.join(images_dir, filename)
         student_ids[roll_no] = int(roll_no)
 
-marked_students = set()
-running = False  # global flag for camera thread
-
 # Define class schedule
-CLASS_START = time(21, 44)  # 6:15 PM
-CLASS_END = time(21, 48)    # 6:30 PM
+CLASS_START = time(20, 3)  # 08:03 PM
+CLASS_END = time(20, 5)    # 08:05 PM
 
 # ------------------ Database Functions ------------------
 def create_connection():
     try:
         connection = mysql.connector.connect(
-            host="dhanwardhan.com",
+            host="localhost",
             port=3306,
-            user="dhanwusu_dhanwusu_tial_user",
-            password="yash_@123",
-            database="dhanwusu_cwit_attendx_trial"
+            user="root",
+            password="",  # set your password
+            database="student"
         )
         if connection.is_connected():
             print("Connected to MySQL database")
@@ -62,7 +62,7 @@ def insert_student(student_id, roll_no):
         try:
             cursor = connection.cursor()
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            query = "INSERT INTO studentss (id, name, timestamp) VALUES (%s, %s, %s)"
+            query = "INSERT INTO students (id, name, timestamp) VALUES (%s, %s, %s)"
             cursor.execute(query, (student_id, roll_no, now))
             connection.commit()
             print(f"Inserted {roll_no} (ID: {student_id}) at {now}")
@@ -73,10 +73,11 @@ def insert_student(student_id, roll_no):
             connection.close()
 
 def mark_attendance(roll_no):
-    if roll_no in student_ids and roll_no not in marked_students:
-        student_id = student_ids[roll_no]
-        insert_student(student_id, roll_no)
-        marked_students.add(roll_no)
+    with lock:
+        if roll_no in student_ids and roll_no not in marked_students:
+            student_id = student_ids[roll_no]
+            insert_student(student_id, roll_no)
+            marked_students.add(roll_no)
 
 def load_known_faces_and_names():
     known_face_encodings = []
@@ -95,21 +96,28 @@ def load_known_faces_and_names():
 def run_camera():
     global running
     known_face_encodings, known_face_names = load_known_faces_and_names()
-    video_capture = cv2.VideoCapture(1)
+    video_capture = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if not video_capture.isOpened():
         print("Cannot access camera")
         running = False
         return
 
+    scale = 0.75  # Increase resolution for higher accuracy
     while running:
         ret, frame = video_capture.read()
         if not ret:
             continue
-        small_frame = cv2.resize(frame, (0,0), fx=0.5, fy=0.5)  # changed from 0.25 to 0.5
-        face_locations = face_recognition.face_locations(small_frame)
-        face_encodings = face_recognition.face_encodings(small_frame, face_locations)
+
+        # Convert to RGB
+        small_frame = cv2.resize(frame, (0,0), fx=scale, fy=scale)
+        rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+
+        # Detect faces using CNN for high accuracy
+        face_locations = face_recognition.face_locations(rgb_frame, model="cnn")
+        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+
         for face_encoding, face_location in zip(face_encodings, face_locations):
-            matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.5)  # reduced tolerance
+            matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.55)
             face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
             if len(face_distances) == 0:
                 continue
@@ -117,10 +125,13 @@ def run_camera():
             if matches[best_match_index]:
                 roll_no = known_face_names[best_match_index]
                 mark_attendance(roll_no)
-                top, right, bottom, left = [v*2 for v in face_location]  # adjusted for fx=0.5
+
+                # Scale back face locations for display
+                top, right, bottom, left = [int(v/scale) for v in face_location]
                 cv2.rectangle(frame, (left, top), (right, bottom), (0,255,0), 2)
                 cv2.putText(frame, roll_no, (left, top-10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,0), 2)
+
         cv2.imshow("Attendance", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
@@ -129,20 +140,17 @@ def run_camera():
     cv2.destroyAllWindows()
     running = False
 
-
 # ------------------ Attendance Scheduler ------------------
 def attendance_scheduler():
     global running
     while True:
         now = datetime.now().time()
         if not running and CLASS_START <= now < CLASS_END:
-            # Start camera
             running = True
             thread = threading.Thread(target=run_camera, daemon=True)
             thread.start()
             print(f"Class started at {now}, camera running...")
         elif running and now >= CLASS_END:
-            # Stop camera
             running = False
             print(f"Class ended at {now}, camera stopped.")
         t.sleep(10)  # check every 10 seconds
@@ -159,7 +167,7 @@ async def get_attendance():
     if connection:
         try:
             cursor = connection.cursor(dictionary=True)
-            cursor.execute("SELECT * FROM studentss ORDER BY timestamp DESC")
+            cursor.execute("SELECT * FROM students ORDER BY timestamp DESC")
             rows = cursor.fetchall()
             return rows
         except mysql.connector.Error as e:
